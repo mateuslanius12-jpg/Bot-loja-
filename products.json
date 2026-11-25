@@ -1,0 +1,16 @@
+[
+  {
+    "id": "banner1",
+    "nome": "Banner FiveM Premium",
+    "preco": 25.0,
+    "descricao": "Banner personalizado para seu servidor.",
+    "link": "https://SEU-LINK-DE-DOWNLOAD-AQUI"
+  },
+  {
+    "id": "logo1",
+    "nome": "Logo Personalizada",
+    "preco": 40.0,
+    "descricao": "Logo exclusiva para sua cidade/facção.",
+    "link": "https://SEU-LINK-DE-DOWNLOAD-AQUI"
+  }
+]
