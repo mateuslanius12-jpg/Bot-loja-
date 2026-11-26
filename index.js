@@ -1,6 +1,8 @@
 require('dotenv').config();
 const http = require('http');
 const crypto = require('crypto');
+const path = require('path');
+const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const products = require('./products.json');
 const {
   Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder,
@@ -54,13 +56,92 @@ function campo(id, label, placeholder, obrigatorio = true) {
   );
 }
 
+GlobalFonts.registerFromPath(path.join(__dirname, 'fonts', 'BigShoulders-Bold.ttf'), 'BigShoulders');
+GlobalFonts.registerFromPath(path.join(__dirname, 'fonts', 'Poppins-Bold.ttf'), 'Poppins');
+
+const CORES = {
+  vermelho: '#ff1e1e', 'azul escuro': '#0a2a8f', 'azul claro': '#4db8ff', 'azul neon': '#00d4ff',
+  azul: '#1e6bff', verde: '#16d44a', 'verde neon': '#39ff14', amarelo: '#ffd500', laranja: '#ff7a00',
+  roxo: '#9b30ff', rosa: '#ff3fa4', 'rosa neon': '#ff2bd6', ciano: '#00e5ff', dourado: '#ffc400',
+  prata: '#c0c0c0', branco: '#ffffff', preto: '#111111', cinza: '#888888', marrom: '#8b4513',
+};
+
+function corParaHex(txt) {
+  const t = txt.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const hex = t.match(/#[0-9a-f]{6}\b/);
+  if (hex) return hex[0];
+  const nomes = Object.keys(CORES).sort((a, b) => b.length - a.length);
+  const achado = nomes.find((n) => t.includes(n));
+  return achado ? CORES[achado] : '#ff1e1e';
+}
+
 async function gerarImagem({ cor, nome, estilo, extra }) {
-  const prompt = `FiveM GTA RP server banner art, text "${nome}", main color ${cor}, style ${estilo}, ${extra || ''}, high quality, cinematic, detailed`;
-  const seed = Math.floor(Math.random() * 1e6);
-  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1280&height=720&nologo=true&seed=${seed}`;
-  const r = await fetch(url);
-  if (!r.ok) throw new Error('Falha ao gerar imagem');
-  return Buffer.from(await r.arrayBuffer());
+  const W = 1344, H = 720;
+  const hex = corParaHex(cor);
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+
+  // 1) Fundo gerado por IA (sem texto). Se falhar, usa degradê da cor.
+  try {
+    const prompt = `${estilo} style, ${cor} color palette, ${extra || ''}, GTA V roleplay city atmosphere, cinematic wide background, no text, no letters, no words, no logo`;
+    const seed = Math.floor(Math.random() * 1e6);
+    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${W}&height=756&nologo=true&seed=${seed}`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('fundo falhou');
+    const img = await loadImage(Buffer.from(await r.arrayBuffer()));
+    // corta a parte de baixo pra esconder a marca d'água
+    ctx.drawImage(img, 0, 0, img.width, img.height * 0.95, 0, 0, W, H);
+  } catch (e) {
+    console.error('Fundo IA falhou, usando degradê:', e.message);
+    const g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, '#000000');
+    g.addColorStop(1, hex);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // 2) Escurece pra o texto aparecer
+  const ov = ctx.createRadialGradient(W / 2, H / 2, 100, W / 2, H / 2, W * 0.7);
+  ov.addColorStop(0, 'rgba(0,0,0,0.25)');
+  ov.addColorStop(1, 'rgba(0,0,0,0.75)');
+  ctx.fillStyle = ov;
+  ctx.fillRect(0, 0, W, H);
+
+  // 3) Moldura na cor escolhida
+  ctx.strokeStyle = hex;
+  ctx.lineWidth = 8;
+  ctx.shadowColor = hex;
+  ctx.shadowBlur = 25;
+  ctx.strokeRect(30, 30, W - 60, H - 60);
+
+  // 4) Nome (sempre escrito certo)
+  const texto = nome.toUpperCase();
+  let size = 260;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  do {
+    ctx.font = `${size}px BigShoulders, Poppins`;
+    size -= 6;
+  } while (ctx.measureText(texto).width > W * 0.82 && size > 40);
+
+  ctx.shadowColor = hex;
+  ctx.shadowBlur = 50;
+  ctx.lineWidth = 10;
+  ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+  ctx.strokeText(texto, W / 2, H / 2 - 20);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(texto, W / 2, H / 2 - 20);
+
+  // 5) Linha e estilo embaixo do nome
+  ctx.shadowBlur = 20;
+  ctx.fillStyle = hex;
+  ctx.fillRect(W / 2 - 220, H / 2 + size * 0.55 + 20, 440, 8);
+  ctx.shadowBlur = 0;
+  ctx.font = '38px Poppins';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(estilo.toUpperCase(), W / 2, H / 2 + size * 0.55 + 80);
+
+  return canvas.toBuffer('image/png');
 }
 
 // ---------- PIX (MERCADO PAGO) ----------
@@ -117,7 +198,7 @@ client.on('interactionCreate', async (i) => {
     if (i.isChatInputCommand()) {
       if (i.commandName === 'arte') {
         if (i.user.id !== OWNER_ID)
-          return i.reply({ content: 'Só o dono pode usar.', ephemeral: true });
+          return i.reply({ content: 'Só o dono pode usar.', flags: 64 });
         const modal = new ModalBuilder().setCustomId('arte_modal').setTitle('Gerar arte')
           .addComponents(
             campo('cor', 'Cor', 'Ex: vermelho e preto'),
@@ -147,7 +228,7 @@ client.on('interactionCreate', async (i) => {
           ],
         });
         await canal.send(`Olá ${i.user}, descreva seu pedido de arte. Nossa equipe já vai te atender!`);
-        return i.reply({ content: `Ticket criado: ${canal}`, ephemeral: true });
+        return i.reply({ content: `Ticket criado: ${canal}`, flags: 64 });
       }
     }
 
@@ -167,7 +248,7 @@ client.on('interactionCreate', async (i) => {
     }
 
     if (i.isStringSelectMenu() && i.customId === 'comprar') {
-      await i.deferReply({ ephemeral: true });
+      await i.deferReply({ flags: 64 });
       const produto = products.find((p) => p.id === i.values[0]);
       const pix = await criarPix(produto, i.user.id);
       const qr = new AttachmentBuilder(Buffer.from(pix.qrBase64, 'base64'), { name: 'pix.png' });
@@ -181,7 +262,7 @@ client.on('interactionCreate', async (i) => {
     console.error(err);
     const msg = '❌ Deu erro, tenta de novo.';
     if (i.deferred || i.replied) i.editReply({ content: msg }).catch(() => {});
-    else i.reply({ content: msg, ephemeral: true }).catch(() => {});
+    else i.reply({ content: msg, flags: 64 }).catch(() => {});
   }
 });
 
