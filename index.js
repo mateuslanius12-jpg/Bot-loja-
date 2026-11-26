@@ -30,10 +30,20 @@ const commands = [
   new SlashCommandBuilder().setName('ticket').setDescription('Abrir um ticket de pedido'),
 ].map((c) => c.toJSON());
 
-client.once('ready', async () => {
-  const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
-  await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+// Não deixa o bot cair por erro solto
+process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e));
+process.on('uncaughtException', (e) => console.error('uncaughtException:', e));
+client.on('error', (e) => console.error('client error:', e));
+
+client.once('clientReady', async () => {
   console.log(`Online como ${client.user.tag}`);
+  try {
+    const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+    console.log('Comandos registrados com sucesso');
+  } catch (e) {
+    console.error('ERRO AO REGISTRAR COMANDOS (confira CLIENT_ID, GUILD_ID e se o bot está no servidor):', e.message);
+  }
 });
 
 // ---------- GERADOR DE ARTE ----------
@@ -175,4 +185,4 @@ client.on('interactionCreate', async (i) => {
   }
 });
 
-client.login(DISCORD_TOKEN);
+client.login(DISCORD_TOKEN).catch((e) => console.error('ERRO NO LOGIN (token errado?):', e.message));
